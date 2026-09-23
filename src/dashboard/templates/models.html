@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Models{% endblock %}
+{% block content %}
+<div id="models-root"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const DATASET_LABELS = { cicids: "CICIDS2017", unsw: "UNSW-NB15" };
+
+function detectionTable(dataset, detection) {
+  const rows = Object.entries(detection).map(([name, metrics]) => {
+    const m = metrics.f1_optimal_threshold;
+    return `<tr>
+      <td>${name}</td>
+      <td class="num">${m.precision.toFixed(3)}</td>
+      <td class="num">${m.recall.toFixed(3)}</td>
+      <td class="num">${m.f1.toFixed(3)}</td>
+      <td class="num">${m.roc_auc.toFixed(3)}</td>
+      <td class="num">${m.pr_auc.toFixed(3)}</td>
+      <td class="num">${(m.false_positive_rate * 100).toFixed(2)}%</td>
+    </tr>`;
+  }).join("");
+  return `<div class="panel">
+    <h2>${DATASET_LABELS[dataset]} &mdash; Detection Phase (F1-optimal threshold)</h2>
+    <table>
+      <thead><tr><th>Detector</th><th>Precision</th><th>Recall</th><th>F1</th><th>ROC-AUC</th><th>PR-AUC</th><th>FPR</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function predictionTable(dataset, prediction) {
+  const rows = Object.entries(prediction).map(([name, metrics]) => `
+    <tr>
+      <td>${name}</td>
+      <td class="num">${metrics.macro_f1.toFixed(3)}</td>
+      <td class="num">${metrics.weighted_f1.toFixed(3)}</td>
+    </tr>`).join("");
+  return `<div class="panel">
+    <h2>${DATASET_LABELS[dataset]} &mdash; Prediction Phase (attack-type classifier, test set)</h2>
+    <table>
+      <thead><tr><th>Model</th><th>Macro F1</th><th>Weighted F1</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="muted" style="font-size:12px">Macro F1 &lt;&lt; weighted F1 indicates rare attack classes drag down average performance -- see PROJECT_PLAN.md risks section.</p>
+  </div>`;
+}
+
+async function load() {
+  const data = await fetchJSON("/api/models");
+  const root = document.getElementById("models-root");
+  let html = "";
+  for (const dataset of ["cicids", "unsw"]) {
+    if (data[dataset]?.detection) html += detectionTable(dataset, data[dataset].detection);
+    if (data[dataset]?.prediction) html += predictionTable(dataset, data[dataset].prediction);
+  }
+  root.innerHTML = html;
+}
+
+load();
+</script>
+{% endblock %}

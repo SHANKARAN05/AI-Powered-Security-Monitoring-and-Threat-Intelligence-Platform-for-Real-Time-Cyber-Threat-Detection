@@ -1,0 +1,37 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://aics:aics@postgres:5432/aics
+      FLASK_ENV: development
+    volumes:
+      - ../src:/app/src
+      - ../Data:/app/Data
+      - ../models:/app/models
+      - ../notebooks:/app/notebooks
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aics
+      POSTGRES_PASSWORD: aics
+      POSTGRES_DB: aics
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

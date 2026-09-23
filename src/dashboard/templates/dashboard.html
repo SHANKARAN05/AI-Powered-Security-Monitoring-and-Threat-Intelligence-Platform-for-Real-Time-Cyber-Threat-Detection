@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="controls">
+  <select id="replay-dataset">
+    <option value="cicids">CICIDS2017</option>
+    <option value="unsw">UNSW-NB15</option>
+  </select>
+  <input id="replay-n" type="number" value="100" min="1" max="5000" style="width:90px" title="rows to replay">
+  <input id="replay-delay" type="number" value="0.5" step="0.1" min="0" style="width:90px" title="delay (seconds)">
+  <button class="primary" id="replay-start">Start replay</button>
+  <button class="danger" id="replay-stop">Stop replay</button>
+  <span class="muted" id="replay-state"></span>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi-tile"><div class="label">Total Alerts</div><div class="value" id="kpi-total">-</div></div>
+  <div class="kpi-tile"><div class="label">Critical</div><div class="value" id="kpi-critical">-</div></div>
+  <div class="kpi-tile"><div class="label">High</div><div class="value" id="kpi-high">-</div></div>
+  <div class="kpi-tile"><div class="label">Avg Risk Score</div><div class="value" id="kpi-avg-risk">-</div></div>
+</div>
+
+<div class="panel">
+  <h2>Alerts by severity</h2>
+  <div class="chart-wrap"><canvas id="severity-chart"></canvas></div>
+</div>
+
+<div class="panel">
+  <h2>Alerts by predicted attack type</h2>
+  <div class="chart-wrap"><canvas id="attack-chart"></canvas></div>
+</div>
+
+<div class="panel">
+  <h2>Recent alerts</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Dataset</th><th>Predicted</th><th>Severity</th><th>Risk</th><th>Status</th></tr></thead>
+    <tbody id="recent-alerts-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let severityChart, attackChart;
+
+function renderCharts(data) {
+  const severityCounts = {};
+  for (const s of SEVERITY_ORDER) severityCounts[s] = data.severity_breakdown[s] || 0;
+
+  const sCtx = document.getElementById("severity-chart");
+  const sData = {
+    labels: SEVERITY_ORDER,
+    datasets: [{
+      label: "Alerts",
+      data: SEVERITY_ORDER.map(s => severityCounts[s]),
+      backgroundColor: SEVERITY_ORDER.map(s => SEVERITY_COLORS[s]),
+      borderRadius: 4,
+    }],
+  };
+  const commonScales = {
+    x: { ticks: { color: CHART_TEXT }, grid: { display: false } },
+    y: { ticks: { color: CHART_TEXT }, grid: { color: CHART_GRID }, beginAtZero: true },
+  };
+  if (severityChart) severityChart.destroy();
+  severityChart = new Chart(sCtx, {
+    type: "bar",
+    data: sData,
+    options: { plugins: { legend: { display: false } }, scales: commonScales },
+  });
+
+  const attackEntries = foldToOther(data.attack_type_breakdown);
+  const aCtx = document.getElementById("attack-chart");
+  if (attackChart) attackChart.destroy();
+  attackChart = new Chart(aCtx, {
+    type: "bar",
+    data: {
+      labels: attackEntries.map(([k]) => k),
+      datasets: [{
+        label: "Alerts",
+        data: attackEntries.map(([, v]) => v),
+        backgroundColor: attackEntries.map((_, i) => CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]),
+        borderRadius: 4,
+      }],
+    },
+    options: { plugins: { legend: { display: false } }, scales: commonScales, indexAxis: "y" },
+  });
+}
+
+function renderKPIs(data) {
+  document.getElementById("kpi-total").textContent = data.total_alerts;
+  document.getElementById("kpi-critical").textContent = data.severity_breakdown["Critical"] || 0;
+  document.getElementById("kpi-high").textContent = data.severity_breakdown["High"] || 0;
+  const recent = data.recent_alerts;
+  const avg = recent.length ? (recent.reduce((s, a) => s + a.risk_score, 0) / recent.length).toFixed(1) : "0.0";
+  document.getElementById("kpi-avg-risk").textContent = avg;
+}
+
+function renderRecent(data) {
+  const body = document.getElementById("recent-alerts-body");
+  body.innerHTML = data.recent_alerts.map(a => `
+    <tr>
+      <td>${new Date(a.timestamp).toLocaleTimeString()}</td>
+      <td>${a.dataset_source}</td>
+      <td>${a.predicted_attack_cat}</td>
+      <td>${severityBadge(a.severity)}</td>
+      <td class="num">${a.risk_score.toFixed(1)}</td>
+      <td>${a.status}</td>
+    </tr>`).join("");
+}
+
+async function refresh() {
+  try {
+    const data = await fetchJSON("/api/dashboard-data");
+    renderKPIs(data);
+    renderCharts(data);
+    renderRecent(data);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function refreshReplayStatus() {
+  const status = await fetchJSON("/api/replay/status");
+  document.getElementById("replay-state").textContent = status.running ? `Replaying ${status.dataset}...` : "";
+}
+
+document.getElementById("replay-start").addEventListener("click", async () => {
+  const dataset = document.getElementById("replay-dataset").value;
+  const n_rows = parseInt(document.getElementById("replay-n").value, 10);
+  const delay = parseFloat(document.getElementById("replay-delay").value);
+  try {
+    await fetchJSON("/api/replay/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset, n_rows, delay }),
+    });
+  } catch (e) { alert(e.message); }
+  refreshReplayStatus();
+});
+
+document.getElementById("replay-stop").addEventListener("click", async () => {
+  await fetchJSON("/api/replay/stop", { method: "POST" });
+  refreshReplayStatus();
+});
+
+refresh();
+refreshReplayStatus();
+setInterval(refresh, 4000);
+setInterval(refreshReplayStatus, 4000);
+</script>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+{% block content %}
+<div class="controls">
+  <select id="filter-dataset"><option value="">All datasets</option><option value="cicids">CICIDS2017</option><option value="unsw">UNSW-NB15</option></select>
+  <select id="filter-severity">
+    <option value="">All severities</option>
+    <option>Critical</option><option>High</option><option>Medium</option><option>Low</option><option>Informational</option>
+  </select>
+  <select id="filter-status"><option value="">All statuses</option><option>new</option><option>investigating</option><option>resolved</option></select>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr><th>Time</th><th>Dataset</th><th>Src IP</th><th>Dst IP</th><th>Predicted</th><th>Severity</th><th>Risk</th><th>Status</th><th></th></tr></thead>
+    <tbody id="alerts-body"></tbody>
+  </table>
+  <div class="pagination">
+    <button id="prev-page">&laquo; Prev</button>
+    <span id="page-info" class="muted"></span>
+    <button id="next-page">Next &raquo;</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let page = 1;
+const perPage = 25;
+
+function buildQuery() {
+  const params = new URLSearchParams({ page, per_page: perPage });
+  const dataset = document.getElementById("filter-dataset").value;
+  const severity = document.getElementById("filter-severity").value;
+  const status = document.getElementById("filter-status").value;
+  if (dataset) params.set("dataset", dataset);
+  if (severity) params.set("severity", severity);
+  if (status) params.set("status", status);
+  return params.toString();
+}
+
+async function updateStatus(id, status) {
+  await fetchJSON(`/api/alerts/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+  });
+  load();
+}
+
+async function load() {
+  const data = await fetchJSON(`/api/alerts?${buildQuery()}`);
+  const body = document.getElementById("alerts-body");
+  body.innerHTML = data.alerts.map(a => `
+    <tr>
+      <td>${new Date(a.timestamp).toLocaleString()}</td>
+      <td>${a.dataset_source}</td>
+      <td>${a.src_ip || ""}</td>
+      <td>${a.dst_ip || ""}</td>
+      <td>${a.predicted_attack_cat}</td>
+      <td>${severityBadge(a.severity)}</td>
+      <td class="num">${a.risk_score.toFixed(1)}</td>
+      <td>
+        <select onchange="updateStatus(${a.id}, this.value)">
+          ${["new", "investigating", "resolved"].map(s => `<option value="${s}" ${s === a.status ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+      </td>
+      <td></td>
+    </tr>`).join("");
+
+  const totalPages = Math.max(Math.ceil(data.total / perPage), 1);
+  document.getElementById("page-info").textContent = `Page ${page} of ${totalPages} (${data.total} alerts)`;
+}
+
+document.getElementById("prev-page").addEventListener("click", () => { if (page > 1) { page--; load(); } });
+document.getElementById("next-page").addEventListener("click", () => { page++; load(); });
+["filter-dataset", "filter-severity", "filter-status"].forEach(id =>
+  document.getElementById(id).addEventListener("change", () => { page = 1; load(); })
+);
+
+load();
+</script>
+{% endblock %}

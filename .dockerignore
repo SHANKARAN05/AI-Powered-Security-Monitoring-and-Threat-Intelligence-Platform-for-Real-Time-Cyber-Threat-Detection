@@ -1,0 +1,10 @@
+Data/
+models/
+notebooks/.ipynb_checkpoints/
+**/__pycache__/
+*.pyc
+.git/
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
